@@ -1,14 +1,18 @@
 ---
 # group_vars/all.yml
 
+app_prefix: 'webapp'
 region: us-east-1
 zone: us-east-1a
-keypair: YOUR_KEYPAIR
-security_groups: YOUR_SECURITY_GROUP
-instance_type: m3.medium
+keypair: KEYPAIR_NAME
+security_groups: ['default']
+instance_type: t2.micro
 volumes:
   - device_name: /dev/sda1
     device_type: gp2
     volume_size: 20
     delete_on_termination: true
 domain: YOUR_DOMAIN_NAME
+
+# generate this name on every run, for naming things uniquely
+app_time: "{{ ansible_date_time.iso8601 | regex_replace('[^a-zA-Z0-9]', '-') }}"

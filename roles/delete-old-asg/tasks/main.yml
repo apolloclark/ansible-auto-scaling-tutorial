@@ -1,18 +1,20 @@
 ---
 # roles/delete-old-lc/tasks/main.yml
 
-- ec2_lc_facts:
+- name: Retrieve a list of Auto Scaling Groups, with the app_prefix
+  ec2_asg_facts:
     region: "{{ region }}"
     name_regex: "{{ app_prefix }}-.*"
     sort: yes
     sort_start: 0
-  register: old_lc_results
+  register: old_asg_results
 
-- debug: var=old_lc_results
+- debug: var=old_asg_results
 
-- ec2_lc:
+- name: Delete the old Auto Scaling Groups
+  ec2_asg:
     region: "{{ region }}"
     name: "{{ item.name }}"
     state: absent
-  with_items: old_lc_results.results
+  with_items: old_asg_results.results
   ignore_errors: yes

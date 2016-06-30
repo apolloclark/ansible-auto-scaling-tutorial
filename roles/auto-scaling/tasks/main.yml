@@ -5,39 +5,47 @@
   command: "aws --region {{ region }} autoscaling describe-auto-scaling-groups --auto-scaling-group-names webapp"
   register: asg_properties_result
 
+- debug: var=asg_properties_result
+
+- debug: var="{{ (asg_properties_result.stdout | from_json).AutoScalingGroups | count}}"
+
+# http://docs.ansible.com/ansible/set_fact_module.html
 - name: Set asg_properties variable from JSON output if the Auto Scaling Group already exists
   set_fact:
-    asg_properties: "{{ (asg_properties_result.stdout | from_json).AutoScalingGroups[0] }}"
+    asg_properties: "{{ (asg_properties_result.stdout | from_json).AutoScalingGroups[0.DesiredCapacity] }}"
   when: (asg_properties_result.stdout | from_json).AutoScalingGroups | count
 
-- name: Configure Auto Scaling Group and perform rolling deploy
+# http://docs.ansible.com/ansible/ec2_asg_module.html
+- name: Configure Auto Scaling Group, perform rolling deploy
   ec2_asg:
     region: "{{ region }}"
-    name: webapp
-    launch_config_name: webapp
+    name: "{{ app_prefix }}-asg-{{ app_time }}"
+    launch_config_name: "{{ app_prefix }}-lc-{{ app_time}}"
     availability_zones: "{{ zone }}"
     health_check_type: ELB
     health_check_period: 300
-    desired_capacity: "{{ asg_properties.DesiredCapacity | default(2) }}"
+    desired_capacity: "{{ item }}"
     replace_all_instances: yes
-    replace_batch_size: "{{ (asg_properties.DesiredCapacity | default(2) / 4) | round(0, 'ceil') | int }}"
+    # replace_batch_size: "{{ (item / 4) | round(0, 'ceil') | int }}"
     min_size: 2
     max_size: 10
     load_balancers:
-      - webapp
+      - "{{ app_prefix}}-lb-{{ app_time }}"
     state: present
+  with_items: "{{ asg_properties  | default([2]) }}"
   register: asg_result
 
-- name: Configure Scaling Policies
+# http://docs.ansible.com/ansible/ec2_scaling_policy_module.html
+- name: Configure Auto Scaling Group, Scaling Policies
   ec2_scaling_policy:
     region: "{{ region }}"
     name: "{{ item.name }}"
-    asg_name: webapp
-    state: present
+    asg_name: "{{ app_prefix }}-asg-{{ app_time }}"
     adjustment_type: "{{ item.adjustment_type }}"
     min_adjustment_step: "{{ item.min_adjustment_step }}"
     scaling_adjustment: "{{ item.scaling_adjustment }}"
     cooldown: "{{ item.cooldown }}"
+    state: present
   with_items:
     - name: "Increase Group Size"
       adjustment_type: "ChangeInCapacity"
@@ -51,36 +59,44 @@
       cooldown: 300
   register: sp_result
 
-- name: Determine Metric Alarm configuration
+# http://docs.ansible.com/ansible/set_fact_module.html
+- name: Set the Metric Alarm configuration
   set_fact:
     metric_alarms:
-      - name: "{{ asg_name }}-ScaleUp"
-        comparison: ">="
-        threshold: 50.0
-        alarm_actions:
-          - "{{ sp_result.results[0].arn }}"
-      - name: "{{ asg_name }}-ScaleDown"
-        comparison: "<="
-        threshold: 20.0
-        alarm_actions:
-          - "{{ sp_result.results[1].arn }}"
+    - name: "{{ app_prefix }}-ScaleUp"
+      metric: "CPUUtilization"
+      comparison: ">="
+      threshold: 50.0
+      unit: "Percent"
+      statistic: "Average"
+      alarm_actions:
+        - "{{ sp_result.results[0].arn }}"
+    - name: "{{ app_prefix }}-ScaleDown"
+      metric: "CPUUtilization"
+      comparison: "<="
+      threshold: 20.0
+      unit: "Percent"
+      statistic: "Average"
+      alarm_actions:
+        - "{{ sp_result.results[1].arn }}"
 
+# http://docs.ansible.com/ansible/ec2_metric_alarm_module.html
 - name: Configure Metric Alarms and link to Scaling Policies
   ec2_metric_alarm:
+    state: present
+    namespace: "AWS/EC2"
     region: "{{ region }}"
     name: "{{ item.name }}"
-    state: present
-    metric: "CPUUtilization"
-    namespace: "AWS/EC2"
-    statistic: "Average"
+    metric: "{{ item.metric }}"
+    statistic: "{{ item.statistic }}"
     comparison: "{{ item.comparison }}"
     threshold: "{{ item.threshold }}"
     period: 60
     evaluation_periods: 5
-    unit: "Percent"
+    unit: "{{ item.unit }}"
     dimensions:
-      AutoScalingGroupName: "{{ asg_name }}"
+      AutoScalingGroupName: "{{ app_prefix}}-asg-{{ app_time }}"
     alarm_actions: "{{ item.alarm_actions }}"
-  with_items: metric_alarms
-  when: max_size > 1
+  with_items: "{{ metric_alarms }}"
+  # when: "{{ asg_result.results.max_size > 1 }}"
   register: ma_result

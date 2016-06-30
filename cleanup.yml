@@ -1,0 +1,29 @@
+---
+# deploy.yml
+
+- name: Find existing EC2 instance(s), based on the tag_Name "ami-build"
+  hosts: "tag_Name_ami_build"
+  gather_facts: false
+  tags: find
+  tasks:
+  - name: Add those EC2 instances to the "old-ami-build" host group
+    group_by:
+      key: old-ami-builds
+  - debug: var=ec2_id
+
+- name: Delete old EC2 instances
+  hosts: old-ami-builds
+  connection: local
+  gather_facts: no
+  roles:
+    - delete-old-ec2
+
+- name: Delete old Auto Scaling Groups, Launch Configs, Load Balancers, and AMI's
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  roles:
+    - delete-old-asg
+    - delete-old-lc
+    - delete-old-lb
+    - delete-old-ami

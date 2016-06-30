@@ -1,10 +1,11 @@
 ---
 # roles/load-balancer/tasks/main.yml
 
+# http://docs.ansible.com/ansible/ec2_elb_lb_module.html
 - name: Configure Elastic Load Balancers
   ec2_elb_lb:
+    name: "{{ app_prefix }}-lb-{{ app_time}}"
     region: "{{ region }}"
-    name: webapp
     state: present
     zones: "{{ zone }}"
     connection_draining_timeout: 60
@@ -21,3 +22,7 @@
       unhealthy_threshold: 6
       healthy_threshold: 2
   register: elb_result
+  # these steps deal with issues of waiting for the results to finish
+  until: "elb_result.module_stderr is not defined"
+  retries: 2
+  delay: 1

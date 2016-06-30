@@ -5,7 +5,19 @@
   apt:
     pkg: git
     state: present
-  sudo: yes
+    update_cache: yes
+
+- name: Install nodejs
+  apt:
+    pkg: nodejs
+    state: present
+    update_cache: yes
+
+- name: Install npm
+  apt:
+    pkg: npm
+    state: present
+    update_cache: yes
 
 - name: Create www directory
   file:
@@ -13,7 +25,6 @@
     owner: ubuntu
     group: ubuntu
     state: directory
-  sudo: yes
 
 - name: Clone repository
   git:
@@ -21,15 +32,35 @@
     dest: /srv/www/webapp
     version: master
 
-- name: Install upstart script
+- name: Install Node Express, locally to the webapp
+  npm:
+    name: express
+    state: present
+    path: /srv/www/webapp
+
+- name: Install upstart script, for the webapp
   copy:
     src: upstart.conf
-    dest: /etc/upstart/webapp.conf
-  sudo: yes
+    dest: /etc/init/webapp.conf
 
-- name: Enable and start the application
+- name: Enable and start the webapp service
   service:
     name: webapp
     enabled: yes
     state: restarted
-  sudo: yes
+
+- name: Install Nginx
+  apt:
+    pkg: nginx
+    state: present
+
+- name: Configure Nginx
+  copy:
+    src: nginx.conf
+    dest: /etc/nginx/sites-enabled/default
+
+- name: Enable and start Nginx
+  service:
+    name: nginx
+    enabled: yes
+    state: restarted

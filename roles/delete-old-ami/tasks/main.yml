@@ -1,18 +1,20 @@
 ---
-# roles/delete-old-amis/tasks/main.yml
+# roles/delete-old-ami/tasks/main.yml
 
 - ec2_ami_find:
     region: "{{ region }}"
     owner: self
-    name: "webapp-*"
+    name: "{{ app_prefix }}-*"
     sort: name
-    sort_end: -10
-  register: old_ami_result
+    sort_start: 0
+  register: old_ami_results
 
+- debug: var=old_ami_results
+
+# http://docs.ansible.com/ansible/ec2_ami_module.html
 - ec2_ami:
     region: "{{ region }}"
     image_id: "{{ item.ami_id }}"
-    delete_snapshot: yes
     state: absent
-  with_items: old_ami_result.results
+  with_items: "{{ old_ami_results.results }}"
   ignore_errors: yes

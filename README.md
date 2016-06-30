@@ -1,24 +1,52 @@
 # EC2 Auto Scaling with Ansible
 
-We use Ansible to manage application deployments to EC2 with Auto Scaling. It's particularly suited because it lends itself to easy integration with existing processes such as CI, enabling rapid development of a continuous deployment pipeline. One crucial feature is that it is able to hand-hold a rolling deploy (that is, zero downtime) by terminating and replacing instances in batches. Typically when we deploy to EC2, we do so in an automated fashion which makes it important to have rollback capability and for this, we typically maintain a short history of Amazon Machine Images (AMIs) and Launch Configurations which are associated with a particular Auto Scaling Group (ASG). In the event you wish to roll back to a particular version of your application, you can simply associate your ASG with the previously known working launch configuration and replace all your instances.
+We use Ansible to manage application deployments to EC2 with Auto Scaling. It's
+particularly suited because it lends itself to easy integration with existing
+processes such as CI, enabling rapid development of a continuous deployment
+pipeline. One crucial feature is that it is able to hand-hold a rolling deploy
+(that is, zero downtime) by terminating and replacing instances in batches.
+Typically when we deploy to EC2, we do so in an automated fashion which makes
+it important to have rollback capability and for this, we typically maintain a
+short history of Amazon Machine Images (AMIs) and Launch Configurations which
+are associated with a particular Auto Scaling Group (ASG). In the event you
+wish to roll back to a particular version of your application, you can simply
+associate your ASG with the previously known working launch configuration and
+replace all your instances.
 
-Our normal workflow for auto scaling deployments starts with an Ansible playbook which runs through the deploy lifecycle. Each step along the way is represented by a role and applied in order, keeping the main playbook lean and configurable. Depending on our client's requirements, that playbook might be triggered in a number of ways such as the final step in a continuous integration build, or on demand via Hubot in a Slack/Flowdock/IRC chat.
+Our normal workflow for auto scaling deployments starts with an Ansible
+playbook which runs through the deploy lifecycle. Each step along the way is
+represented by a role and applied in order, keeping the main playbook lean and
+configurable. Depending on our client's requirements, that playbook might be
+triggered in a number of ways such as the final step in a continuous
+integration build, or on demand via Hubot in a Slack/Flowdock/IRC chat.
 
-In this post we'll walk through each stage of the build and deployment process, and use Ansible to perform all the work. The goal is to build our entire environment from scratch, save for a few manually created resources at the outset.
+In this post we'll walk through each stage of the build and deployment process,
+and use Ansible to perform all the work. The goal is to build our entire
+environment from scratch, save for a few manually created resources at the
+outset.
 
 
 ## Preparing AWS
 
-We'll be using EC2 Classic for these examples, although they can be trivially adapted for VPC. Start by creating an EC2 Security Group for your application, taking care to open the necessary ports for your application in addition to TCP/22 for SSH.
+We'll be using EC2 Classic for these examples, although they can be trivially
+adapted for VPC. Start by creating an EC2 Security Group for your application,
+taking care to open the necessary ports for your application in addition to
+TCP/22 for SSH.
 
-Add a new keypair for SSH access to your instances. You can either create a new private/public keypair or upload your existing SSH public key.
+Add a new keypair for SSH access to your instances. You can either create a
+new private/public keypair or upload your existing SSH public key.
 
-You may optionally register and host a domain name with AWS Route 53. If you do so, the domain will be pointed at your application so that you don't have to browse to it by using an automatically assigned AWS hostname.
+You may optionally register and host a domain name with AWS Route 53. If you
+do so, the domain will be pointed at your application so that you don't have
+to browse to it by using an automatically assigned AWS hostname.
 
 
 ## Setting up Ansible
 
-Ansible uses [Boto](https://github.com/boto/boto) for AWS interactions, so you'll need that installed on your control host. We're also going to make some use of the AWS CLI tools, so get those too. Your platform may differ, but the following will work for most platforms:
+Ansible uses [Boto](https://github.com/boto/boto) for AWS interactions, so
+you'll need that installed on your control host. We're also going to make some
+use of the AWS CLI tools, so get those too. Your platform may differ, but the
+following will work for most platforms:
 
 ```bash
 pip install python-boto awscli
@@ -39,7 +67,13 @@ aws_access_key_id = <your_access_key_here>
 aws_secret_access_key = <your_secret_key_here>
 ```
 
-We'll be using the ec2.py dynamic inventory script for Ansible so we can address our EC2 instances by various attributes instead of hard coding hostnames into an inventory file. It's not included with the Ubuntu distribution(s) of Ansible, so we'll grab it from GitHub. Place [ec2.py](https://raw.githubusercontent.com/ansible/ansible/stable-1.9/plugins/inventory/ec2.py) and [ec2.ini](https://raw.githubusercontent.com/ansible/ansible/stable-1.9/plugins/inventory/ec2.ini) into `/etc/ansible/inventory` (creating that directory if absent)
+We'll be using the ec2.py dynamic inventory script for Ansible so we can
+address our EC2 instances by various attributes instead of hard coding
+hostnames into an inventory file. It's not included with the Ubuntu
+distribution(s) of Ansible, so we'll grab it from GitHub. Place
+[ec2.py](https://raw.githubusercontent.com/ansible/ansible/stable-1.9/plugins/inventory/ec2.py)
+and [ec2.ini](https://raw.githubusercontent.com/ansible/ansible/stable-1.9/plugins/inventory/ec2.ini)
+into `/etc/ansible/inventory` (creating that directory if absent)
 
 Modify `/etc/ansible/ansible.cfg` to use that directory as the inventory source:
 
@@ -51,7 +85,10 @@ inventory = /etc/ansible/inventory
 
 ## Step 1: Launch a new EC2 instance
 
-A prerequisite to setting up an application for auto scaling involves building an AMI containing your working application, which will be used to launch new instances to meet demand. We'll start by launching a new instance onto which we can deploy our application. Create the following files:
+A prerequisite to setting up an application for auto scaling involves building
+an AMI containing your working application, which will be used to launch new
+instances to meet demand. We'll start by launching a new instance onto which
+we can deploy our application. Create the following files:
 
 ```yaml
 ---
@@ -127,13 +164,22 @@ volumes:
   with_items: ec2.instances
 ```
 
-The ec2_ami_find module is a new addition to Ansible 2.0 but has not been backported to 1.9, so we'll need to [import this module from GitHub](https://raw.githubusercontent.com/ansible/ansible-modules-core/devel/cloud/amazon/ec2_ami_find.py) and place it into the `library/` directory relative to `deploy.yml`.
+The ec2_ami_find module is a new addition to Ansible 2.0 but has not been
+backported to 1.9, so we'll need to
+[import this module from GitHub](https://raw.githubusercontent.com/ansible/ansible-modules-core/devel/cloud/amazon/ec2_ami_find.py)
+and place it into the `library/` directory relative to `deploy.yml`.
 
-Run the playbook with `ansible-playbook deploy.yml -vv` and a new instance will be launched. You'll see it in the AWS Web Console and you should be able to SSH to it.
+Run the playbook with `ansible-playbook deploy.yml -vv` and a new instance will
+be launched. You'll see it in the AWS Web Console and you should be able to SSH
+to it.
 
 ## Step 2: Deploy the application
 
-Now we'll use Ansible to deploy our application and start it. We'll deploy a sample Node.js web application, the source code of which is kept in a public git repository. Ansible is going to clone and checkout our application at a desired revision on the target instance and configure it to start on boot, in addition to setting up a web server.
+Now we'll use Ansible to deploy our application and start it. We'll deploy a
+sample Node.js web application, the source code of which is kept in a public
+git repository. Ansible is going to clone and checkout our application at a
+desired revision on the target instance and configure it to start on boot, in
+addition to setting up a web server.
 
 ```yaml
 ---
@@ -242,7 +288,10 @@ server {
 }
 ```
 
-Running the playbook again will launch another instance, install some useful packages, deploy our application and set up Nginx as our web server. If you browse to the newest instance at its hostname, as reported in the output of ansible-playbook, you should see a "Hello World" page.
+Running the playbook again will launch another instance, install some useful
+packages, deploy our application and set up Nginx as our web server. If you
+browse to the newest instance at its hostname, as reported in the output of
+ansible-playbook, you should see a "Hello World" page.
 
 ## Step 3: Build the AMI
 

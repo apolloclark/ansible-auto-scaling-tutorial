@@ -1,6 +1,7 @@
 ---
-# roles/launch/tasks/main.yml
+# roles/launch-ec2/tasks/main.yml
 
+# http://docs.ansible.com/ansible/ec2_ami_find_module.html
 - name: Search for the latest Ubuntu 14.04 AMI
   ec2_ami_find:
     region: "{{ region }}"
@@ -12,7 +13,8 @@
     no_result_action: fail
   register: ami_result
 
-- name: Launch new instance
+# http://docs.ansible.com/ansible/ec2_module.html
+- name: Launch new EC2 instance
   ec2:
     region: "{{ region }}"
     keypair: "{{ keypair }}"
@@ -26,18 +28,20 @@
     wait: yes
   register: ec2
 
-- name: Add new instances to host group
+# http://docs.ansible.com/ansible/add_host_module.html
+- name: Add new EC2 instances to host group
   add_host:
-    name: "{{ item.public_dns_name }}"
+    name: "{{ item.public_ip }}"
     groups: "{{ name }}"
     ec2_id: "{{ item.id }}"
-  with_items: ec2.instances
+  with_items: "{{ec2.instances}}"
 
-- name: Wait for instance to boot
+# http://docs.ansible.com/ansible/wait_for_module.html
+- name: Wait for EC2 instance to boot
   wait_for:
-    host: "{{ item.public_dns_name }}"
+    host: "{{ item.public_ip }}"
     port: 22
-    delay: 30
-    timeout: 300
+    delay: 120
+    timeout: 540
     state: started
-  with_items: ec2.instances
+  with_items: "{{ec2.instances}}"

@@ -1,46 +1,25 @@
 ---
 # deploy.yml
 
-- name: Find existing instance(s)
-  hosts: "tag_Name_ami-build"
-  gather_facts: false
-  tags: find
-  tasks:
-    - name: Add to old-ami-build group
-      group_by:
-        key: old-ami-build
-
 - hosts: localhost
   connection: local
   gather_facts: no
   roles:
-    - role: launch
-      name: ami-build
+  - role: launch-ec2
+    name: ami-build # name of the newly created hosts group
 
 - hosts: ami-build
+  remote_user: ubuntu
+  become: true
+  become_user: root
   roles:
-    - deploy
-    - nginx
+    - provision
 
 - hosts: ami-build
   connection: local
   gather_facts: no
   roles:
     - build-ami
-    - create-launch-configuration
     - load-balancer
+    - launch-config
     - auto-scaling
-    - dns
-
-- hosts: localhost
-  connection: local
-  gather_facts: no
-  roles:
-    - delete-old-launch-configurations
-    - delete-old-amis
-
-- hosts: old-ami-build
-  connection: local
-  gather_facts: no
-  roles:
-    - terminate

@@ -1,0 +1,19 @@
+---
+# roles/delete-old-lb/tasks/main.yml
+
+# http://docs.ansible.com/ansible/ec2_elb_facts_module.html
+- ec2_elb_facts:
+    region: "{{ region }}"
+  register: old_elb_results
+
+- debug: var=old_elb_results
+
+# http://docs.ansible.com/ansible/ec2_elb_module.html
+- ec2_elb_lb:
+    region: "{{ region }}"
+    name: "{{ item.name }}"
+    state: absent
+  with_items: "{{ old_elb_results.elbs }}"
+  # ensure only the ELB's with the app_prefix are removed
+  when: 'app_prefix in item.name'
+  ignore_errors: yes

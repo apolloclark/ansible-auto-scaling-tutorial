@@ -1,5 +1,6 @@
 #!/usr/bin/python
-#
+# -*- coding: utf-8 -*-
+
 # This file is part of Ansible
 #
 # Ansible is free software: you can redistribute it and/or modify
@@ -40,7 +41,7 @@ options:
       - Search AMIs owned by the specified owner
       - Can specify an AWS account ID, or one of the special IDs 'self', 'amazon' or 'aws-marketplace'
       - If not specified, all EC2 AMIs in the specified region will be searched.
-      - You can include wildcards in many of the search options. An asterisk (*) matches zero or more characters, and a question mark (?) matches exactly one character. You can escape special characters using a backslash (\) before the character. For example, a value of \*amazon\?\\ searches for the literal string *amazon?\.
+      - You can include wildcards in many of the search options. An asterisk (*) matches zero or more characters, and a question mark (?) matches exactly one character. You can escape special characters using a backslash (\\) before the character. For example, a value of \\*amazon\\?\\ searches for the literal string *amazon?\\.
     required: false
     default: null
   ami_id:
@@ -165,46 +166,15 @@ EXAMPLES = '''
 
 try:
     import boto.ec2
-    HAS_BOTO=True
+    HAS_BOTO = True
 except ImportError:
-    HAS_BOTO=False
+    HAS_BOTO = False
 
 import json
 
-def main():
-    argument_spec = ec2_argument_spec()
-    argument_spec.update(dict(
-            region = dict(required=True,
-                aliases = ['aws_region', 'ec2_region']),
-            owner = dict(required=False, default=None),
-            ami_id = dict(required=False),
-            ami_tags = dict(required=False, type='dict',
-                aliases = ['search_tags', 'image_tags']),
-            architecture = dict(required=False),
-            hypervisor = dict(required=False),
-            is_public = dict(required=False),
-            name = dict(required=False),
-            platform = dict(required=False),
-            sort = dict(required=False, default=None,
-                choices=['name', 'description', 'tag']),
-            sort_tag = dict(required=False),
-            sort_order = dict(required=False, default='ascending',
-                choices=['ascending', 'descending']),
-            sort_start = dict(required=False),
-            sort_end = dict(required=False),
-            state = dict(required=False, default='available'),
-            virtualization_type = dict(required=False),
-            no_result_action = dict(required=False, default='success',
-                choices = ['success', 'fail']),
-        )
-    )
-
-    module = AnsibleModule(
-        argument_spec=argument_spec,
-    )
-
-    if not HAS_BOTO:
-        module.fail_json(msg='boto required for this module, install via pip or your package manager')
+def get_all_images_filtered(ec2, module):
+    """Retrieve a list of EC2 images, based on user filters.
+    """
 
     ami_id = module.params.get('ami_id')
     ami_tags = module.params.get('ami_tags')
@@ -214,41 +184,41 @@ def main():
     name = module.params.get('name')
     owner = module.params.get('owner')
     platform = module.params.get('platform')
+    state = module.params.get('state')
+    virtualization_type = module.params.get('virtualization_type')
+
+    filters = {'state': state}
+
+    if ami_id:
+        filters['image_id'] = ami_id
+    if ami_tags:
+        for tag in ami_tags:
+            filters['tag:' + tag] = ami_tags[tag]
+    if architecture:
+        filters['architecture'] = architecture
+    if hypervisor:
+        filters['hypervisor'] = hypervisor
+    if is_public:
+        filters['is_public'] = is_public
+    if name:
+        filters['name'] = name
+    if platform:
+        filters['platform'] = platform
+    if virtualization_type:
+        filters['virtualization_type'] = virtualization_type
+
+    images_result = ec2.get_all_images(owners=owner, filters=filters)
+    return [images_result, filters]
+
+def sort_results(images_result, module):
+    """Sort the EC2 image results, based on user filters
+    """
+
     sort = module.params.get('sort')
     sort_tag = module.params.get('sort_tag')
     sort_order = module.params.get('sort_order')
     sort_start = module.params.get('sort_start')
     sort_end = module.params.get('sort_end')
-    state = module.params.get('state')
-    virtualization_type = module.params.get('virtualization_type')
-    no_result_action = module.params.get('no_result_action')
-
-    filter = {'state': state}
-
-    if ami_id:
-        filter['image_id'] = ami_id
-    if ami_tags:
-        for tag in ami_tags:
-            filter['tag:'+tag] = ami_tags[tag]
-    if architecture:
-        filter['architecture'] = architecture
-    if hypervisor:
-        filter['hypervisor'] = hypervisor
-    if is_public:
-        filter['is_public'] = is_public
-    if name:
-        filter['name'] = name
-    if platform:
-        filter['platform'] = platform
-    if virtualization_type:
-        filter['virtualization_type'] = virtualization_type
-
-    ec2 = ec2_connect(module)
-
-    images_result = ec2.get_all_images(owners=owner, filters=filter)
-
-    if no_result_action == 'fail' and len(images_result) == 0:
-        module.fail_json(msg="No AMIs matched the attributes: %s" % json.dumps(filter))
 
     results = []
     for image in images_result:
@@ -277,9 +247,9 @@ def main():
     if sort == 'tag':
         if not sort_tag:
             module.fail_json(msg="'sort_tag' option must be given with 'sort=tag'")
-        results.sort(key=lambda e: e['tags'][sort_tag], reverse=(sort_order=='descending'))
+        results.sort(key=lambda e: e['tags'][sort_tag], reverse=(sort_order == 'descending'))
     elif sort:
-        results.sort(key=lambda e: e[sort], reverse=(sort_order=='descending'))
+        results.sort(key=lambda e: e[sort], reverse=(sort_order == 'descending'))
 
     try:
         if sort and sort_start and sort_end:
@@ -291,12 +261,82 @@ def main():
     except TypeError:
         module.fail_json(msg="Please supply numeric values for sort_start and/or sort_end")
 
+    return results
+
+def main():
+    argument_spec = ec2_argument_spec()
+    argument_spec.update(
+        {
+            'region': {
+                'required': True,
+                'aliases': ['aws_region', 'ec2_region']
+            },
+            'owner': {
+                'required': False,
+                'default': None
+            },
+            'ami_id': {'required': False},
+            'ami_tags': {
+                'required': False,
+                'type': 'dict',
+                'aliases': ['search_tags', 'image_tags']
+            },
+            'architecture': {'required': False},
+            'hypervisor': {'required': False},
+            'is_public': {'required': False},
+            'name': {'required': False},
+            'platform': {'required': False},
+            'sort': {
+                'required': False,
+                'default': None,
+                'choices': ['name', 'description', 'tag']
+            },
+            'sort_tag': {'required': False},
+            'sort_order': {
+                'required': False,
+                'default': 'ascending',
+                'choices': ['ascending', 'descending']
+            },
+            'sort_start': {'required': False},
+            'sort_end': {'required': False},
+            'state': {'required': False, 'default': 'available'},
+            'virtualization_type': {'required': False},
+            'no_result_action': {
+                'required': False,
+                'default': 'success',
+                'choices': ['success', 'fail']
+            },
+        }
+    )
+
+    module = AnsibleModule(
+        argument_spec=argument_spec,
+    )
+
+    if not HAS_BOTO:
+        module.fail_json(
+            msg=""" boto required for this module, install via pip or your
+package manager"""
+        )
+
+    ec2 = ec2_connect(module)
+
+    # get the image_results, and parsed filters
+    images_result, filters = get_all_images_filtered(ec2, module)
+
+    # verify we have results
+    no_result_action = module.params.get('no_result_action')
+    if no_result_action == 'fail' and len(images_result) == 0:
+        module.fail_json(msg="No AMIs matched the attributes: %s" % json.dumps(filters))
+
+    results = sort_results(images_result, module)
     module.exit_json(results=results)
 
+
+
 # import module snippets
-from ansible.module_utils.basic import *
-from ansible.module_utils.ec2 import *
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.ec2 import ec2_argument_spec, ec2_connect
 
 if __name__ == '__main__':
     main()
-
